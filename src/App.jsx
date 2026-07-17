@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5123'
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5122'
 const QUESTION_TYPES = [
   { value: 'MultipleChoice', label: 'Jednokrotny wybór' },
   { value: 'TrueFalse', label: 'Prawda/Fałsz' },
@@ -13,6 +13,7 @@ function App() {
   const [content, setContent] = useState('')
   const [url, setUrl] = useState('')
   const [file, setFile] = useState(null)
+  const [apiKey, setApiKey] = useState('')
   const [questionCount, setQuestionCount] = useState(5)
   const [selectedTypes, setSelectedTypes] = useState(['MultipleChoice', 'TrueFalse'])
   const [generatedQuiz, setGeneratedQuiz] = useState(null)
@@ -57,12 +58,17 @@ function App() {
     setSuccess('')
 
     try {
+      if (!apiKey.trim()) {
+        throw new Error('Podaj własny klucz OpenAI API, aby wygenerować quiz.')
+      }
+
       let response
+      const apiKeyHeader = { 'X-OpenAI-Api-Key': apiKey.trim() }
 
       if (sourceMode === 'text') {
         response = await fetch(`${API_URL}/api/quizzes/generate-text`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...apiKeyHeader },
           body: JSON.stringify({
             content,
             questionCount,
@@ -72,7 +78,7 @@ function App() {
       } else if (sourceMode === 'url') {
         response = await fetch(`${API_URL}/api/quizzes/generate-url`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...apiKeyHeader },
           body: JSON.stringify({
             url,
             questionCount,
@@ -87,6 +93,7 @@ function App() {
 
         response = await fetch(`${API_URL}/api/quizzes/generate-file`, {
           method: 'POST',
+          headers: apiKeyHeader,
           body: formData,
         })
       }
@@ -96,8 +103,11 @@ function App() {
         throw new Error(data?.message || 'Nie udało się wygenerować quizu.')
       }
 
-      setGeneratedQuiz(data)
-      setSuccess('Quiz został wygenerowany. Przejrzyj pytania i zatwierdź/odrzuć je przed zapisem.')
+      setGeneratedQuiz({
+        ...data,
+        questions: data.questions.map((question) => ({ ...question, isApproved: null })),
+      })
+      setSuccess('Quiz został wygenerowany. Każde pytanie ma status „Do zatwierdzenia”.')
     } catch (err) {
       setError(err.message)
     } finally {
@@ -167,6 +177,20 @@ function App() {
           </p>
 
           <form onSubmit={handleGenerate} className="mt-6 space-y-5">
+            <label className="block">
+              <span className="mb-2 block text-sm text-slate-300">Twój klucz OpenAI API</span>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                autoComplete="off"
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 text-slate-50 outline-none focus:border-cyan-400"
+                placeholder="sk-..."
+                required
+              />
+              <p className="mt-2 text-xs text-slate-400">Klucz jest używany tylko do wygenerowania quizu i nie jest zapisywany.</p>
+            </label>
+
             <div className="flex flex-wrap gap-3">
               {['text', 'url', 'file'].map((mode) => (
                 <button
@@ -215,7 +239,7 @@ function App() {
                 <input
                   type="file"
                   onChange={(event) => setFile(event.target.files?.[0] || null)}
-                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 text-slate-50 outline-none focus:border-cyan-400"
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 text-sm text-slate-300 outline-none file:mr-6 file:rounded-xl file:border-0 file:bg-cyan-400 file:px-4 file:py-2 file:font-semibold file:text-slate-950 hover:file:bg-cyan-300 focus:border-cyan-400"
                 />
               </label>
             )}
@@ -291,8 +315,18 @@ function App() {
                         <p className="text-xs uppercase tracking-[0.25em] text-cyan-400">Pytanie {index + 1}</p>
                         <h3 className="mt-2 text-base font-semibold">{question.text}</h3>
                       </div>
-                      <span className={`rounded-full px-2 py-1 text-xs ${question.isApproved ? 'bg-emerald-400/20 text-emerald-300' : 'bg-amber-400/20 text-amber-300'}`}>
-                        {question.isApproved ? 'Zatwierdzone' : 'Do rozpatrzenia'}
+                      <span className={`rounded-full px-2 py-1 text-xs ${
+                        question.isApproved === true
+                          ? 'bg-emerald-400/20 text-emerald-300'
+                          : question.isApproved === false
+                            ? 'bg-rose-400/20 text-rose-300'
+                            : 'bg-amber-400/20 text-amber-300'
+                      }`}>
+                        {question.isApproved === true
+                          ? 'Zatwierdzone'
+                          : question.isApproved === false
+                            ? 'Odrzucone'
+                            : 'Do zatwierdzenia'}
                       </span>
                     </div>
 
@@ -303,6 +337,11 @@ function App() {
                         ))}
                       </ul>
                     )}
+
+                    <p className="mt-3 text-sm text-emerald-300">
+                      <span className="font-semibold">Poprawna odpowiedź:</span> {question.correctAnswer}
+                    </p>
+                    {question.explanation && <p className="mt-1 text-sm text-slate-400">{question.explanation}</p>}
 
                     <div className="mt-4 flex flex-wrap gap-2">
                       <button
