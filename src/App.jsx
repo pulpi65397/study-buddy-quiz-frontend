@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { supabase } from './supabase'
+import Auth from './Auth'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5122'
 const QUESTION_TYPES = [
@@ -9,6 +11,19 @@ const QUESTION_TYPES = [
 ]
 
 function App() {
+  const [session, setSession] = useState(undefined)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null))
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session))
+    return () => subscription.unsubscribe()
+  }, [])
+
+  if (session === undefined) return null
+  if (session === null) return <Auth />
+
+  const handleSignOut = () => supabase.auth.signOut()
+
   const [sourceMode, setSourceMode] = useState('text')
   const [content, setContent] = useState('')
   const [url, setUrl] = useState('')
@@ -167,6 +182,16 @@ function App() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50 px-4 py-8">
+      <div className="mx-auto mb-4 flex max-w-7xl items-center justify-between">
+        <span className="text-sm text-slate-400">{session.user.email}</span>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:border-rose-400 hover:text-rose-300"
+        >
+          Wyloguj
+        </button>
+      </div>
       <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-2xl shadow-cyan-950/20">
           <p className="text-sm uppercase tracking-[0.3em] text-cyan-400">Study Buddy Quiz MVP</p>
