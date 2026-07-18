@@ -38,6 +38,8 @@ function Dashboard({ session }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [editingId, setEditingId] = useState(null)
+  const [editDraft, setEditDraft] = useState({})
 
   const selectedTypeSummary = useMemo(() => {
     return selectedTypes.length > 0 ? selectedTypes.join(', ') : 'Brak typów'
@@ -131,6 +133,27 @@ function Dashboard({ session }) {
       ),
     }))
     setSuccess(approved ? 'Pytanie zatwierdzone.' : 'Pytanie odrzucone.')
+  }
+
+  const startEdit = (question) => {
+    setEditingId(question.id)
+    setEditDraft({
+      text: question.text,
+      correctAnswer: question.correctAnswer,
+      explanation: question.explanation || '',
+      options: question.options ? [...question.options] : [],
+    })
+  }
+
+  const saveEdit = (questionId) => {
+    setGeneratedQuiz((current) => ({
+      ...current,
+      questions: current.questions.map((item) =>
+        item.id === questionId ? { ...item, ...editDraft } : item,
+      ),
+    }))
+    setEditingId(null)
+    setSuccess('Pytanie zaktualizowane.')
   }
 
   const saveQuiz = async () => {
@@ -312,51 +335,124 @@ function Dashboard({ session }) {
               <div className="mt-4 space-y-4">
                 {generatedQuiz.questions.map((question, index) => (
                   <article key={question.id} className="rounded-2xl border border-slate-700 bg-slate-950 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.25em] text-cyan-400">Pytanie {index + 1}</p>
-                        <h3 className="mt-2 text-base font-semibold">{question.text}</h3>
+                    {editingId === question.id ? (
+                      <div className="space-y-3">
+                        <p className="text-xs uppercase tracking-[0.25em] text-cyan-400">Pytanie {index + 1} — edycja</p>
+                        <label className="block">
+                          <span className="mb-1 block text-xs text-slate-400">Treść pytania</span>
+                          <textarea
+                            rows={3}
+                            value={editDraft.text}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, text: e.target.value }))}
+                            className="w-full rounded-xl border border-slate-700 bg-slate-900 p-2 text-sm text-slate-50 outline-none focus:border-cyan-400"
+                          />
+                        </label>
+                        {editDraft.options.length > 0 && (
+                          <div>
+                            <span className="mb-1 block text-xs text-slate-400">Opcje odpowiedzi</span>
+                            {editDraft.options.map((opt, i) => (
+                              <input
+                                key={i}
+                                value={opt}
+                                onChange={(e) => {
+                                  const updated = [...editDraft.options]
+                                  updated[i] = e.target.value
+                                  setEditDraft((d) => ({ ...d, options: updated }))
+                                }}
+                                className="mb-2 w-full rounded-xl border border-slate-700 bg-slate-900 p-2 text-sm text-slate-50 outline-none focus:border-cyan-400"
+                              />
+                            ))}
+                          </div>
+                        )}
+                        <label className="block">
+                          <span className="mb-1 block text-xs text-slate-400">Poprawna odpowiedź</span>
+                          <input
+                            value={editDraft.correctAnswer}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, correctAnswer: e.target.value }))}
+                            className="w-full rounded-xl border border-slate-700 bg-slate-900 p-2 text-sm text-slate-50 outline-none focus:border-cyan-400"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs text-slate-400">Wyjaśnienie</span>
+                          <input
+                            value={editDraft.explanation}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, explanation: e.target.value }))}
+                            className="w-full rounded-xl border border-slate-700 bg-slate-900 p-2 text-sm text-slate-50 outline-none focus:border-cyan-400"
+                          />
+                        </label>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => saveEdit(question.id)}
+                            className="rounded-full bg-cyan-400 px-3 py-2 text-xs font-semibold text-slate-950"
+                          >
+                            Zapisz zmiany
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingId(null)}
+                            className="rounded-full border border-slate-600 px-3 py-2 text-xs text-slate-300"
+                          >
+                            Anuluj
+                          </button>
+                        </div>
                       </div>
-                      <span className={`rounded-full px-2 py-1 text-xs ${
-                        question.isApproved === true
-                          ? 'bg-emerald-400/20 text-emerald-300'
-                          : question.isApproved === false
-                            ? 'bg-rose-400/20 text-rose-300'
-                            : 'bg-amber-400/20 text-amber-300'
-                      }`}>
-                        {question.isApproved === true ? 'Zatwierdzone' : question.isApproved === false ? 'Odrzucone' : 'Do zatwierdzenia'}
-                      </span>
-                    </div>
+                    ) : (
+                      <>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.25em] text-cyan-400">Pytanie {index + 1}</p>
+                            <h3 className="mt-2 text-base font-semibold">{question.text}</h3>
+                          </div>
+                          <span className={`rounded-full px-2 py-1 text-xs ${
+                            question.isApproved === true
+                              ? 'bg-emerald-400/20 text-emerald-300'
+                              : question.isApproved === false
+                                ? 'bg-rose-400/20 text-rose-300'
+                                : 'bg-amber-400/20 text-amber-300'
+                          }`}>
+                            {question.isApproved === true ? 'Zatwierdzone' : question.isApproved === false ? 'Odrzucone' : 'Do zatwierdzenia'}
+                          </span>
+                        </div>
 
-                    {question.options?.length > 0 && (
-                      <ul className="mt-3 list-disc pl-5 text-sm text-slate-300">
-                        {question.options.map((option) => (
-                          <li key={option}>{option}</li>
-                        ))}
-                      </ul>
+                        {question.options?.length > 0 && (
+                          <ul className="mt-3 list-disc pl-5 text-sm text-slate-300">
+                            {question.options.map((option) => (
+                              <li key={option}>{option}</li>
+                            ))}
+                          </ul>
+                        )}
+
+                        <p className="mt-3 text-sm text-emerald-300">
+                          <span className="font-semibold">Poprawna odpowiedź:</span> {question.correctAnswer}
+                        </p>
+                        {question.explanation && <p className="mt-1 text-sm text-slate-400">{question.explanation}</p>}
+
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => approveQuestion(question.id, true)}
+                            className="rounded-full bg-emerald-400 px-3 py-2 text-xs font-semibold text-slate-950"
+                          >
+                            Zatwierdź
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => approveQuestion(question.id, false)}
+                            className="rounded-full bg-rose-400 px-3 py-2 text-xs font-semibold text-slate-950"
+                          >
+                            Odrzuć
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => startEdit(question)}
+                            className="rounded-full border border-slate-600 px-3 py-2 text-xs text-slate-300 hover:border-cyan-400 hover:text-cyan-300"
+                          >
+                            Edytuj
+                          </button>
+                        </div>
+                      </>
                     )}
-
-                    <p className="mt-3 text-sm text-emerald-300">
-                      <span className="font-semibold">Poprawna odpowiedź:</span> {question.correctAnswer}
-                    </p>
-                    {question.explanation && <p className="mt-1 text-sm text-slate-400">{question.explanation}</p>}
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => approveQuestion(question.id, true)}
-                        className="rounded-full bg-emerald-400 px-3 py-2 text-xs font-semibold text-slate-950"
-                      >
-                        Zatwierdź
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => approveQuestion(question.id, false)}
-                        className="rounded-full bg-rose-400 px-3 py-2 text-xs font-semibold text-slate-950"
-                      >
-                        Odrzuć
-                      </button>
-                    </div>
                   </article>
                 ))}
               </div>
