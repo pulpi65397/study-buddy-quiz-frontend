@@ -125,14 +125,31 @@ function Dashboard({ session }) {
     }
   }
 
-  const approveQuestion = (questionId, approved) => {
+  const approveQuestion = (questionId) => {
     setGeneratedQuiz((current) => ({
       ...current,
       questions: current.questions.map((item) =>
-        item.id === questionId ? { ...item, isApproved: approved } : item,
+        item.id === questionId ? { ...item, isApproved: true } : item,
       ),
     }))
-    setSuccess(approved ? 'Pytanie zatwierdzone.' : 'Pytanie odrzucone.')
+    setSuccess('Pytanie zatwierdzone.')
+  }
+
+  const deleteQuestion = async (questionId) => {
+    if (generatedQuiz?.quizId) {
+      try {
+        const authHeaders = await getAuthHeaders()
+        await fetch(`${API_URL}/api/quizzes/${generatedQuiz.quizId}/questions/${questionId}`, {
+          method: 'DELETE',
+          headers: authHeaders,
+        })
+      } catch {}
+    }
+    setGeneratedQuiz((current) => ({
+      ...current,
+      questions: current.questions.filter((item) => item.id !== questionId),
+    }))
+    setSuccess('Pytanie usunięte.')
   }
 
   const startEdit = (question) => {
@@ -423,8 +440,8 @@ function Dashboard({ session }) {
                       </p>
                       {question.explanation && <p className="mt-1 text-sm text-slate-400">{question.explanation}</p>}
                       <div className="mt-4 flex flex-wrap gap-2">
-                        <button type="button" onClick={() => approveQuestion(question.id, true)} className="rounded-full bg-emerald-400 px-3 py-2 text-xs font-semibold text-slate-950">Zatwierdź</button>
-                        <button type="button" onClick={() => approveQuestion(question.id, false)} className="rounded-full bg-rose-400 px-3 py-2 text-xs font-semibold text-slate-950">Odrzuć</button>
+                        <button type="button" onClick={() => approveQuestion(question.id)} className="rounded-full bg-emerald-400 px-3 py-2 text-xs font-semibold text-slate-950">Zatwierdź</button>
+                        <button type="button" onClick={() => deleteQuestion(question.id)} className="rounded-full bg-rose-400 px-3 py-2 text-xs font-semibold text-slate-950">Usuń</button>
                         <button type="button" onClick={() => startEdit(question)} className="rounded-full border border-slate-600 px-3 py-2 text-xs text-slate-300 hover:border-cyan-400 hover:text-cyan-300">Edytuj</button>
                       </div>
                     </>
