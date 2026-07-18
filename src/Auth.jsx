@@ -18,12 +18,13 @@ export default function Auth() {
     const { error } =
       mode === 'login'
         ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password })
+        : await supabase.auth.signUp({ email, password, options: { emailRedirectTo: undefined, data: {} } })
 
     if (error) {
       setError(error.message)
     } else if (mode === 'register') {
-      setInfo('Sprawdź skrzynkę email i potwierdź rejestrację.')
+      setInfo('Konto utworzone. Możesz się teraz zalogować.')
+      setMode('login')
     }
 
     setBusy(false)
