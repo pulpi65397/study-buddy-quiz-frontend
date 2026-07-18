@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { supabase } from './supabase'
+import Auth from './Auth'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5122'
 const QUESTION_TYPES = [
@@ -9,6 +11,21 @@ const QUESTION_TYPES = [
 ]
 
 function App() {
+  const [session, setSession] = useState(undefined)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null))
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => setSession(s))
+    return () => subscription.unsubscribe()
+  }, [])
+
+  if (session === undefined) return null
+  if (session === null) return <Auth />
+
+  return <Dashboard session={session} />
+}
+
+function Dashboard({ session }) {
   const [sourceMode, setSourceMode] = useState('text')
   const [content, setContent] = useState('')
   const [url, setUrl] = useState('')
@@ -26,17 +43,22 @@ function App() {
     return selectedTypes.length > 0 ? selectedTypes.join(', ') : 'Brak typów'
   }, [selectedTypes])
 
+  const getAuthHeaders = async () => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  }
+
   useEffect(() => {
     fetchHistory()
   }, [])
 
   const fetchHistory = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/quizzes/history`)
+      const authHeaders = await getAuthHeaders()
+      const response = await fetch(`${API_URL}/api/quizzes/history`, { headers: authHeaders })
       const data = await response.json()
-      if (!response.ok) {
-        throw new Error(data?.message || 'Nie udało się pobrać historii.')
-      }
+      if (!response.ok) throw new Error(data?.message || 'Nie udało się pobrać historii.')
       setHistory(data)
     } catch (err) {
       setError(err.message)
@@ -45,9 +67,7 @@ function App() {
 
   const toggleType = (value) => {
     setSelectedTypes((current) =>
-      current.includes(value)
-        ? current.filter((item) => item !== value)
-        : [...current, value],
+      current.includes(value) ? current.filter((item) => item !== value) : [...current, value],
     )
   }
 
@@ -58,56 +78,44 @@ function App() {
     setSuccess('')
 
     try {
-      if (!apiKey.trim()) {
-        throw new Error('Podaj własny klucz OpenAI API, aby wygenerować quiz.')
-      }
+      if (!apiKey.trim()) throw new Error('Podaj własny klucz OpenAI API, aby wygenerować quiz.')
 
-      let response
+      const authHeaders = await getAuthHeaders()
       const apiKeyHeader = { 'X-OpenAI-Api-Key': apiKey.trim() }
+      let response
 
       if (sourceMode === 'text') {
         response = await fetch(`${API_URL}/api/quizzes/generate-text`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...apiKeyHeader },
-          body: JSON.stringify({
-            content,
-            questionCount,
-            questionTypes: selectedTypes,
-          }),
+          headers: { 'Content-Type': 'application/json', ...apiKeyHeader, ...authHeaders },
+          body: JSON.stringify({ content, questionCount, questionTypes: selectedTypes }),
         })
       } else if (sourceMode === 'url') {
         response = await fetch(`${API_URL}/api/quizzes/generate-url`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...apiKeyHeader },
-          body: JSON.stringify({
-            url,
-            questionCount,
-            questionTypes: selectedTypes,
-          }),
+          headers: { 'Content-Type': 'application/json', ...apiKeyHeader, ...authHeaders },
+          body: JSON.stringify({ url, questionCount, questionTypes: selectedTypes }),
         })
       } else {
         const formData = new FormData()
         formData.append('file', file)
         formData.append('questionCount', String(questionCount))
         formData.append('questionTypes', selectedTypes.join(','))
-
         response = await fetch(`${API_URL}/api/quizzes/generate-file`, {
           method: 'POST',
-          headers: apiKeyHeader,
+          headers: { ...apiKeyHeader, ...authHeaders },
           body: formData,
         })
       }
 
       const data = await response.json()
-      if (!response.ok) {
-        throw new Error(data?.message || 'Nie udało się wygenerować quizu.')
-      }
+      if (!response.ok) throw new Error(data?.message || 'Nie udało się wygenerować quizu.')
 
       setGeneratedQuiz({
         ...data,
-        questions: data.questions.map((question) => ({ ...question, isApproved: null })),
+        questions: data.questions.map((q) => ({ ...q, isApproved: null })),
       })
-      setSuccess('Quiz został wygenerowany. Każde pytanie ma status „Do zatwierdzenia”.')
+      setSuccess('Quiz został wygenerowany. Każde pytanie ma status „Do zatwierdzenia".')
     } catch (err) {
       setError(err.message)
     } finally {
@@ -115,35 +123,23 @@ function App() {
     }
   }
 
-  const approveQuestion = async (questionId, approved) => {
-    if (!generatedQuiz) {
-      return
-    }
-
-    const question = generatedQuiz.questions.find((item) => item.id === questionId)
-    if (!question) {
-      return
-    }
-
+  const approveQuestion = (questionId, approved) => {
     setGeneratedQuiz((current) => ({
       ...current,
       questions: current.questions.map((item) =>
         item.id === questionId ? { ...item, isApproved: approved } : item,
       ),
     }))
-
     setSuccess(approved ? 'Pytanie zatwierdzone.' : 'Pytanie odrzucone.')
   }
 
   const saveQuiz = async () => {
-    if (!generatedQuiz) {
-      return
-    }
-
+    if (!generatedQuiz) return
     try {
+      const authHeaders = await getAuthHeaders()
       const response = await fetch(`${API_URL}/api/quizzes/save`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({
           title: generatedQuiz.title || 'Nowy quiz',
           sourceType: generatedQuiz.sourceType,
@@ -152,12 +148,8 @@ function App() {
           questions: generatedQuiz.questions,
         }),
       })
-
       const data = await response.json()
-      if (!response.ok) {
-        throw new Error(data?.message || 'Nie udało się zapisać quizu.')
-      }
-
+      if (!response.ok) throw new Error(data?.message || 'Nie udało się zapisać quizu.')
       setSuccess(`Quiz zapisany w bazie danych. ID: ${data.quizId}`)
       fetchHistory()
     } catch (err) {
@@ -167,6 +159,16 @@ function App() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50 px-4 py-8">
+      <div className="mx-auto mb-4 flex max-w-7xl items-center justify-between">
+        <span className="text-sm text-slate-400">{session.user.email}</span>
+        <button
+          type="button"
+          onClick={() => supabase.auth.signOut()}
+          className="rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:border-rose-400 hover:text-rose-300"
+        >
+          Wyloguj
+        </button>
+      </div>
       <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-2xl shadow-cyan-950/20">
           <p className="text-sm uppercase tracking-[0.3em] text-cyan-400">Study Buddy Quiz MVP</p>
@@ -182,7 +184,7 @@ function App() {
               <input
                 type="password"
                 value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
+                onChange={(e) => setApiKey(e.target.value)}
                 autoComplete="off"
                 className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 text-slate-50 outline-none focus:border-cyan-400"
                 placeholder="sk-..."
@@ -213,7 +215,7 @@ function App() {
                 <span className="mb-2 block text-sm text-slate-300">Wprowadź tekst</span>
                 <textarea
                   value={content}
-                  onChange={(event) => setContent(event.target.value)}
+                  onChange={(e) => setContent(e.target.value)}
                   rows={8}
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 text-slate-50 outline-none focus:border-cyan-400"
                   placeholder="Wklej treść do wygenerowania quizu..."
@@ -226,7 +228,7 @@ function App() {
                 <span className="mb-2 block text-sm text-slate-300">Adres URL</span>
                 <input
                   value={url}
-                  onChange={(event) => setUrl(event.target.value)}
+                  onChange={(e) => setUrl(e.target.value)}
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 text-slate-50 outline-none focus:border-cyan-400"
                   placeholder="https://example.com/artykul"
                 />
@@ -238,7 +240,7 @@ function App() {
                 <span className="mb-2 block text-sm text-slate-300">Wybierz plik PDF/DOCX/TXT</span>
                 <input
                   type="file"
-                  onChange={(event) => setFile(event.target.files?.[0] || null)}
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 text-sm text-slate-300 outline-none file:mr-6 file:rounded-xl file:border-0 file:bg-cyan-400 file:px-4 file:py-2 file:font-semibold file:text-slate-950 hover:file:bg-cyan-300 focus:border-cyan-400"
                 />
               </label>
@@ -252,7 +254,7 @@ function App() {
                   min="1"
                   max="10"
                   value={questionCount}
-                  onChange={(event) => setQuestionCount(Number(event.target.value))}
+                  onChange={(e) => setQuestionCount(Number(e.target.value))}
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 text-slate-50 outline-none focus:border-cyan-400"
                 />
               </label>
@@ -322,11 +324,7 @@ function App() {
                             ? 'bg-rose-400/20 text-rose-300'
                             : 'bg-amber-400/20 text-amber-300'
                       }`}>
-                        {question.isApproved === true
-                          ? 'Zatwierdzone'
-                          : question.isApproved === false
-                            ? 'Odrzucone'
-                            : 'Do zatwierdzenia'}
+                        {question.isApproved === true ? 'Zatwierdzone' : question.isApproved === false ? 'Odrzucone' : 'Do zatwierdzenia'}
                       </span>
                     </div>
 
